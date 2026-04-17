@@ -123,15 +123,69 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - index_load      : load the staged files into memory
 //   - strchr          : find the first '/' in a path to separate directories from files
 //   - strncmp         : compare prefixes to group files belonging to the same subdirectory
-//   - Recursion       : you will likely want to create a recursive helper function 
-//                       (e.g., `write_tree_level(entries, count, depth)`) to handle nested dirs.
-//   - tree_serialize  : convert your populated Tree struct into a binary buffer
+//   - Recursion       : you will likely want to create a recursive helper function//   - tree_serialize  : convert your populated Tree struct into a binary buffer
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
 int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
+    DIR *dir = opendir(".");
+    if (!dir) return -1;
+
+    Tree tree;
+    tree.count = 0;
+
+    struct dirent *entry;
+
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip hidden files and .pes directory
+        if (entry->d_name[0] == '.') continue;
+        if (strcmp(entry->d_name, ".pes") == 0) continue;
+
+        if (tree.count >= MAX_TREE_ENTRIES) break;
+
+        TreeEntry *te = &tree.entries[tree.count];
+
+        // Set name
+        strncpy(te->name, entry->d_name, sizeof(te->name));
+
+        // Set mode
+        te->mode = get_file_mode(entry->d_name);
+
+        // Read file content
+        FILE *f = fopen(entry->d_name, "rb");
+        if (!f) continue;
+
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        rewind(f);
+
+        void *data = malloc(size);
+        fread(data, 1, size, f);
+        fclose(f);
+
+        // Store as blob
+        if (object_write(OBJ_BLOB, data, size, &te->hash) != 0) {
+            free(data);
+            continue;
+        }
+
+        free(data);
+        tree.count++;
+    }
+
+    closedir(dir);
+
+    // Serialize tree
+    void *data;
+    size_t len;
+    if (tree_serialize(&tree, &data, &len) != 0) return -1;
+
+    // Store tree
+    if (object_write(OBJ_TREE, data, len, id_out) != 0) {
+        free(data);
+        return -1;
+    }
+
+    free(data);
+    return 0;
 }
