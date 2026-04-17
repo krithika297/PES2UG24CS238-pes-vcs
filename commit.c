@@ -192,10 +192,57 @@ int head_update(const ObjectID *new_commit) {
 //   - object_write      : saves the serialized text as OBJ_COMMIT
 //   - head_update       : moves the branch pointer to your new commit
 //
-// Returns 0 on success, -1 on error.
+// Returns 0 on success, -1 on error
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
-    (void)message; (void)commit_id_out;
-    return -1;
+    ObjectID tree_id;
+    ObjectID parent_id;
+    ObjectID commit_id;
+
+    char buffer[2048];
+    size_t offset = 0;
+
+    // Build tree
+    if (tree_from_index(&tree_id) != 0) return -1;
+
+    // Parent
+    int has_parent = (head_read(&parent_id) == 0);
+
+    // Author
+    const char *author = pes_author();
+    long timestamp = time(NULL);
+
+    // tree line
+    offset += sprintf(buffer + offset, "tree ");
+    for (int i = 0; i < HASH_SIZE; i++)
+        offset += sprintf(buffer + offset, "%02x", tree_id.hash[i]);
+    offset += sprintf(buffer + offset, "\n");
+
+    // parent line
+    if (has_parent) {
+        offset += sprintf(buffer + offset, "parent ");
+        for (int i = 0; i < HASH_SIZE; i++)
+            offset += sprintf(buffer + offset, "%02x", parent_id.hash[i]);
+        offset += sprintf(buffer + offset, "\n");
+    }
+
+    // author + committer
+    offset += sprintf(buffer + offset, "author %s %ld\n", author, timestamp);
+    offset += sprintf(buffer + offset, "committer %s %ld\n\n", author, timestamp);
+
+    // message
+    offset += sprintf(buffer + offset, "%s\n", message);
+
+    // write object
+    if (object_write(OBJ_COMMIT, buffer, offset, &commit_id) != 0)
+        return -1;
+
+    // update HEAD
+    if (head_update(&commit_id) != 0)
+        return -1;
+
+    // return commit id
+    *commit_id_out = commit_id;
+
+    return 0;
 }
+  
